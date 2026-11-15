@@ -1,0 +1,80 @@
+name: Build APK from ZIP
+
+# Upload PakistanStudiesApp.zip (or any project zip) to the repo root.
+# This workflow unzips it, builds the APK and publishes it automatically.
+# It also works if the project is already extracted in the repo.
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find project (unzip if a zip is uploaded)
+        id: prep
+        run: |
+          set -e
+          if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
+            DIR="$PWD"
+          else
+            ZIP=$(find . -maxdepth 2 -name "*.zip" -not -path "./.git/*" | head -n 1)
+            if [ -z "$ZIP" ]; then
+              echo "No zip file and no Gradle project found in the repo."
+              exit 1
+            fi
+            echo "Using $ZIP"
+            mkdir -p /tmp/proj
+            unzip -q "$ZIP" -d /tmp/proj
+            SETTINGS=$(find /tmp/proj -name "settings.gradle.kts" -not -path "*/__MACOSX/*" | head -n 1)
+            if [ -z "$SETTINGS" ]; then
+              echo "settings.gradle.kts not found inside the zip."
+              exit 1
+            fi
+            DIR=$(dirname "$SETTINGS")
+          fi
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Accept Android SDK licenses (SDK is preinstalled on the runner)
+        run: |
+          SDKM=$(find "$ANDROID_HOME" "$ANDROID_SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -n 1)
+          echo "sdkmanager: $SDKM"
+          if [ -n "$SDKM" ]; then
+            yes | "$SDKM" --licenses > /dev/null || true
+          fi
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build debug APK
+        working-directory: ${{ steps.prep.outputs.dir }}
+        run: gradle assembleDebug --stacktrace
+
+      - name: Copy APK
+        run: |
+          mkdir -p out
+          cp "${{ steps.prep.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk" out/PakistanStudies.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PakistanStudies-apk
+          path: out/PakistanStudies.apk
+
+      - name: Publish as GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: APK build ${{ github.run_number }}
+          files: out/PakistanStudies.apk
