@@ -1,9 +1,5 @@
 name: Build APK from ZIP
 
-# Upload PakistanStudiesApp.zip (or any project zip) to the repo root.
-# This workflow unzips it, builds the APK and publishes it automatically.
-# It also works if the project is already extracted in the repo.
-
 on:
   push:
   workflow_dispatch:
@@ -46,7 +42,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: |
+          SDKM=$(find "$ANDROID_HOME" "$ANDROID_SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -n 1)
+          echo "sdkmanager: $SDKM"
+          if [ -n "$SDKM" ]; then
+            yes | "$SDKM" --licenses > /dev/null || true
+          fi
 
       - uses: gradle/actions/setup-gradle@v4
         with:
